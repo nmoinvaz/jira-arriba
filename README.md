@@ -117,6 +117,14 @@ Windows, and clicking one opens the issue where the notifier supports it. `--ins
 LaunchAgent on macOS, logging to `~/Library/Logs/jira-arriba-notify-watch.log`, or a systemd user
 service on Linux, logging to the journal.
 
+Notifications carry the Jira icon. macOS takes a notification's icon from the app that sends it, so
+the first notification builds a copy of terminal-notifier named jira-arriba under
+`~/Library/Application Support/jira-arriba`, and macOS asks once to allow its notifications. Until
+they are allowed, the notes come through terminal-notifier itself and the watch says where to allow
+them. Linux and Windows read the icon from a PNG kept under `~/.local/share/jira-arriba` or
+`%LOCALAPPDATA%\jira-arriba`. The icon comes from Atlassian's `@atlaskit/logo` package, and Jira is
+a trademark of Atlassian.
+
 ### Options
 
 | Option | Description |

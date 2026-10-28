@@ -1,5 +1,11 @@
 //! Native desktop notifications through the platform's own notifier.
 
+mod icon;
+
+use std::path::{Path, PathBuf};
+
+use icon::Branding;
+
 /// One desktop notification.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Note {
@@ -36,27 +42,35 @@ impl Note {
 /// A notifier command: program, arguments, and environment variables.
 #[derive(Debug, PartialEq)]
 struct Invocation {
-    program: &'static str,
+    program: PathBuf,
     args: Vec<String>,
     env: Vec<(&'static str, String)>,
 }
 
-/// Shows a toast through the WinRT API. Title and body come from the environment so they need no
-/// quoting.
+/// Shows a toast through the WinRT API. Title, body, and icon come from the environment so they
+/// need no quoting. The icon takes the image slot of the template that has one.
 const WINDOWS_TOAST: &str = "\
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
-$template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02)
+$type = if ($env:ARRIBA_NOTE_ICON) { 'ToastImageAndText02' } else { 'ToastText02' }
+$template = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]$type)
 $text = $template.GetElementsByTagName('text')
 $text.Item(0).AppendChild($template.CreateTextNode($env:ARRIBA_NOTE_TITLE)) | Out-Null
 $text.Item(1).AppendChild($template.CreateTextNode($env:ARRIBA_NOTE_BODY)) | Out-Null
+if ($env:ARRIBA_NOTE_ICON) { $template.GetElementsByTagName('image').Item(0).SetAttribute('src', $env:ARRIBA_NOTE_ICON) }
 $toast = [Windows.UI.Notifications.ToastNotification]::new($template)
 $app = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe'
 [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($app).Show($toast)";
 
-/// The command that shows `note` on `os`, preferring a notifier `has` reports as installed.
-fn invocation(os: &str, note: &Note, has: impl Fn(&str) -> bool) -> Option<Invocation> {
+/// The command that shows `note` on `os`, preferring a notifier `has` reports as installed, with
+/// the icon where `branding` keeps it.
+fn invocation(
+    os: &str,
+    note: &Note,
+    has: impl Fn(&str) -> bool,
+    branding: &Branding,
+) -> Option<Invocation> {
     match os {
-        "macos" if has("terminal-notifier") => {
+        "macos" if branding.notifier.is_some() || has("terminal-notifier") => {
             let mut args = vec![
                 "-title".into(),
                 note.title.clone(),
@@ -72,14 +86,17 @@ fn invocation(os: &str, note: &Note, has: impl Fn(&str) -> bool) -> Option<Invoc
                 args.extend(["-open".into(), url.clone()]);
             }
             Some(Invocation {
-                program: "terminal-notifier",
+                program: branding
+                    .notifier
+                    .clone()
+                    .unwrap_or_else(|| "terminal-notifier".into()),
                 args,
                 env: Vec::new(),
             })
         }
         // Passing the text as script arguments avoids escaping it into AppleScript.
         "macos" => Some(Invocation {
-            program: "osascript",
+            program: "osascript".into(),
             args: vec![
                 "-e".into(),
                 "on run argv".into(),
@@ -92,60 +109,144 @@ fn invocation(os: &str, note: &Note, has: impl Fn(&str) -> bool) -> Option<Invoc
             ],
             env: Vec::new(),
         }),
-        "windows" => Some(Invocation {
-            program: "powershell.exe",
-            args: vec![
-                "-NoProfile".into(),
-                "-NonInteractive".into(),
-                "-Command".into(),
-                WINDOWS_TOAST.into(),
-            ],
-            env: vec![
+        "windows" => {
+            let mut env = vec![
                 ("ARRIBA_NOTE_TITLE", note.title.clone()),
                 ("ARRIBA_NOTE_BODY", note.body_with_url()),
-            ],
-        }),
-        _ if has("notify-send") => Some(Invocation {
-            program: "notify-send",
-            args: vec![
-                "--app-name=jira-arriba".into(),
-                // A title or body starting with a dash would otherwise parse as an option.
-                "--".into(),
-                note.title.clone(),
-                note.body_with_url(),
-            ],
-            env: Vec::new(),
-        }),
+            ];
+            if let Some(png) = &branding.png {
+                env.push(("ARRIBA_NOTE_ICON", file_url(png)));
+            }
+            Some(Invocation {
+                program: "powershell.exe".into(),
+                args: vec![
+                    "-NoProfile".into(),
+                    "-NonInteractive".into(),
+                    "-Command".into(),
+                    WINDOWS_TOAST.into(),
+                ],
+                env,
+            })
+        }
+        _ if has("notify-send") => {
+            let mut args = vec!["--app-name=jira-arriba".to_string()];
+            if let Some(png) = &branding.png {
+                args.push(format!("--icon={}", png.display()));
+            }
+            // A title or body starting with a dash would otherwise parse as an option.
+            args.extend(["--".into(), note.title.clone(), note.body_with_url()]);
+            Some(Invocation {
+                program: "notify-send".into(),
+                args,
+                env: Vec::new(),
+            })
+        }
         _ => None,
     }
 }
 
-/// Whether `program` is on the PATH.
+/// A toast takes its image as a URL.
+fn file_url(path: &Path) -> String {
+    let path = path.display().to_string().replace('\\', "/");
+    format!("file:///{}", path.trim_start_matches('/'))
+}
+
+/// Where `program` is on the PATH.
+#[cfg_attr(test, allow(dead_code))]
+fn find(program: &str) -> Option<PathBuf> {
+    let path = std::env::var_os("PATH")?;
+    std::env::split_paths(&path).find_map(|dir| {
+        let file = dir.join(program);
+        if file.is_file() {
+            return Some(file);
+        }
+        let exe = file.with_extension("exe");
+        (cfg!(windows) && exe.is_file()).then_some(exe)
+    })
+}
+
 #[cfg_attr(test, allow(dead_code))]
 fn on_path(program: &str) -> bool {
-    let Some(path) = std::env::var_os("PATH") else {
-        return false;
-    };
-    std::env::split_paths(&path).any(|dir| {
-        let file = dir.join(program);
-        file.is_file() || (cfg!(windows) && file.with_extension("exe").is_file())
+    find(program).is_some()
+}
+
+/// Why a notifier didn't show a note.
+#[cfg_attr(test, allow(dead_code))]
+struct Failure {
+    program: PathBuf,
+    code: Option<i32>,
+    detail: String,
+}
+
+impl std::fmt::Display for Failure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let program = self.program.display();
+        match (self.code, self.detail.as_str()) {
+            (_, detail) if !detail.is_empty() => write!(f, "{program}: {detail}"),
+            (Some(code), _) => write!(f, "{program} exited with {code}"),
+            (None, _) => write!(f, "{program} was killed"),
+        }
+    }
+}
+
+/// terminal-notifier's exit code when notifications for its bundle aren't allowed.
+#[cfg(not(test))]
+const NOT_AUTHORIZED: i32 = 3;
+
+#[cfg(not(test))]
+fn execute(inv: &Invocation) -> Result<(), Failure> {
+    use std::process::{Command, Stdio};
+    let output = Command::new(&inv.program)
+        .args(&inv.args)
+        .envs(inv.env.iter().cloned())
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .output()
+        .map_err(|e| Failure {
+            program: inv.program.clone(),
+            code: None,
+            detail: e.to_string(),
+        })?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Err(Failure {
+        program: inv.program.clone(),
+        code: output.status.code(),
+        detail: stderr.lines().next().unwrap_or_default().trim().to_string(),
     })
 }
 
 #[cfg(not(test))]
-fn show(note: &Note) -> bool {
-    use std::process::{Command, Stdio};
-    let Some(inv) = invocation(std::env::consts::OS, note, on_path) else {
-        return false;
+fn show(note: &Note) -> Result<(), Failure> {
+    use std::sync::Once;
+    static HINTED: Once = Once::new();
+    let os = std::env::consts::OS;
+    let branding = icon::branding();
+    let Some(inv) = invocation(os, note, on_path, branding) else {
+        return Err(Failure {
+            program: "notifier".into(),
+            code: None,
+            detail: "No desktop notifier found (install notify-send or terminal-notifier)".into(),
+        });
     };
-    Command::new(inv.program)
-        .args(&inv.args)
-        .envs(inv.env)
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
+    match execute(&inv) {
+        // macOS refuses the branded copy until its notifications are allowed. The stock notifier
+        // shows the note meanwhile.
+        Err(failure) if failure.code == Some(NOT_AUTHORIZED) && branding.notifier.is_some() => {
+            HINTED.call_once(|| {
+                eprintln!(
+                    "Allow jira-arriba under System Settings > Notifications to see the Jira icon ({failure})"
+                );
+            });
+            let Some(stock) = invocation(os, note, on_path, &Branding::default()) else {
+                return Err(failure);
+            };
+            execute(&stock)
+        }
+        result => result,
+    }
 }
 
 #[cfg(test)]
@@ -155,9 +256,9 @@ thread_local! {
 
 /// Tests record notes instead of showing them.
 #[cfg(test)]
-fn show(note: &Note) -> bool {
+fn show(note: &Note) -> Result<(), Failure> {
     SENT.with(|s| s.borrow_mut().push(note.clone()));
-    true
+    Ok(())
 }
 
 /// The notes this test thread has sent, clearing them.
@@ -166,11 +267,11 @@ pub fn sent() -> Vec<Note> {
     SENT.with(|s| std::mem::take(&mut *s.borrow_mut()))
 }
 
-/// Show `note`, or when no notifier works, ring the terminal bell and print it to stderr.
+/// Show `note`, or when the notifier can't, ring the terminal bell and print it to stderr.
 pub fn send(note: &Note) {
-    if !show(note) {
+    if let Err(failure) = show(note) {
         eprintln!(
-            "\x07No desktop notifier found (install notify-send or terminal-notifier): {}: {}",
+            "\x07Notification not shown ({failure}): {}: {}",
             note.title,
             note.body_with_url()
         );
@@ -189,13 +290,27 @@ mod tests {
         )
     }
 
+    fn plain() -> Branding {
+        Branding::default()
+    }
+
+    fn branded() -> Branding {
+        Branding {
+            notifier: Some("/apps/jira-arriba.app/Contents/MacOS/terminal-notifier".into()),
+            png: Some("/data/jira.png".into()),
+        }
+    }
+
     #[test]
     fn macos_prefers_terminal_notifier_with_a_click_url() {
-        let inv = invocation("macos", &note(Some("https://x/1")), |p| {
-            p == "terminal-notifier"
-        })
+        let inv = invocation(
+            "macos",
+            &note(Some("https://x/1")),
+            |p| p == "terminal-notifier",
+            &plain(),
+        )
         .unwrap();
-        assert_eq!(inv.program, "terminal-notifier");
+        assert_eq!(inv.program, Path::new("terminal-notifier"));
         assert!(inv.args.ends_with(&["-open".into(), "https://x/1".into()]));
         assert_eq!(inv.args[4..6], ["-group", "jira-arriba"]);
 
@@ -204,7 +319,7 @@ mod tests {
             group: Some("jira-arriba:D4T-1".into()),
             ..note(None)
         };
-        let inv = invocation("macos", &styled, |p| p == "terminal-notifier").unwrap();
+        let inv = invocation("macos", &styled, |p| p == "terminal-notifier", &plain()).unwrap();
         assert_eq!(
             inv.args[4..],
             ["-group", "jira-arriba:D4T-1", "-subtitle", "Ann"]
@@ -212,9 +327,19 @@ mod tests {
     }
 
     #[test]
+    fn macos_runs_the_branded_copy_without_needing_the_path() {
+        let inv = invocation("macos", &note(None), |_| false, &branded()).unwrap();
+        assert_eq!(
+            inv.program,
+            Path::new("/apps/jira-arriba.app/Contents/MacOS/terminal-notifier")
+        );
+        assert_eq!(inv.args[..2], ["-title", "D4T-1 assigned to you"]);
+    }
+
+    #[test]
     fn macos_falls_back_to_osascript_with_text_as_arguments() {
-        let inv = invocation("macos", &note(Some("https://x/1")), |_| false).unwrap();
-        assert_eq!(inv.program, "osascript");
+        let inv = invocation("macos", &note(Some("https://x/1")), |_| false, &plain()).unwrap();
+        assert_eq!(inv.program, Path::new("osascript"));
         assert_eq!(
             inv.args[inv.args.len() - 2..],
             [
@@ -226,19 +351,29 @@ mod tests {
 
     #[test]
     fn linux_uses_notify_send_when_installed() {
-        let inv = invocation("linux", &note(None), |p| p == "notify-send").unwrap();
-        assert_eq!(inv.program, "notify-send");
+        let inv = invocation("linux", &note(None), |p| p == "notify-send", &plain()).unwrap();
+        assert_eq!(inv.program, Path::new("notify-send"));
         assert_eq!(
-            inv.args[1..],
-            ["--", "D4T-1 assigned to you", "Crash on start"]
+            inv.args,
+            [
+                "--app-name=jira-arriba",
+                "--",
+                "D4T-1 assigned to you",
+                "Crash on start"
+            ]
         );
-        assert_eq!(invocation("linux", &note(None), |_| false), None);
+        let inv = invocation("linux", &note(None), |p| p == "notify-send", &branded()).unwrap();
+        assert_eq!(inv.args[1], "--icon=/data/jira.png");
+        assert_eq!(
+            invocation("linux", &note(None), |_| false, &branded()),
+            None
+        );
     }
 
     #[test]
-    fn windows_passes_text_through_the_environment() {
-        let inv = invocation("windows", &note(Some("https://x/1")), |_| false).unwrap();
-        assert_eq!(inv.program, "powershell.exe");
+    fn windows_passes_text_and_icon_through_the_environment() {
+        let inv = invocation("windows", &note(Some("https://x/1")), |_| false, &plain()).unwrap();
+        assert_eq!(inv.program, Path::new("powershell.exe"));
         assert!(!inv.args.iter().any(|a| a.contains("Crash on start")));
         assert_eq!(
             inv.env,
@@ -249,6 +384,17 @@ mod tests {
                     "Crash on start\nhttps://x/1".to_string()
                 ),
             ]
+        );
+        let inv = invocation("windows", &note(None), |_| false, &branded()).unwrap();
+        assert_eq!(
+            inv.env[2],
+            ("ARRIBA_NOTE_ICON", "file:///data/jira.png".into())
+        );
+        assert_eq!(
+            file_url(Path::new(
+                "C:\\Users\\me\\AppData\\Local\\jira-arriba\\jira.png"
+            )),
+            "file:///C:/Users/me/AppData/Local/jira-arriba/jira.png"
         );
     }
 
