@@ -6,6 +6,8 @@ mod cli;
 mod context;
 mod credentials;
 mod issue;
+mod notifications;
+mod notify;
 mod output;
 mod project;
 mod prompt;
@@ -35,5 +37,6 @@ fn main() -> Result<()> {
         Command::Attachment(cmd) => attachment::run(&ctx()?, cmd),
         Command::Project(cmd) => project::run(&ctx()?, cmd),
         Command::Adf(cmd) => adf::run(cmd),
+        Command::Notify(cmd) => notifications::run(ctx, cmd),
     }
 }

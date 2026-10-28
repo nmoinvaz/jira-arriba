@@ -7,6 +7,8 @@ use crate::credentials::{self, Credentials};
 pub struct Ctx {
     pub client: Client,
     pub creds: Credentials,
+    /// The --site flag, kept so the login can be read again.
+    pub site: Option<String>,
     pub json: bool,
     pub yes: bool,
 }
@@ -18,9 +20,18 @@ impl Ctx {
         Ok(Self {
             client,
             creds,
+            site,
             json,
             yes,
         })
+    }
+
+    /// Read the login again, as when its token is about to expire, and use it from now on.
+    pub fn refresh_login(&mut self) -> Result<()> {
+        let creds = credentials::resolve(self.site.as_deref())?;
+        self.client = Client::new(&creds)?;
+        self.creds = creds;
+        Ok(())
     }
 
     /// Web link to an issue on the login's site.

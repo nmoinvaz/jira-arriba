@@ -1,4 +1,4 @@
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 #[derive(Parser)]
@@ -41,6 +41,62 @@ pub enum Command {
     /// Convert between Markdown and Atlassian Document Format
     #[command(subcommand)]
     Adf(AdfCommand),
+    /// Watch your issues and show a desktop notification for each change
+    #[command(subcommand)]
+    Notify(NotifyCommand),
+}
+
+#[derive(Subcommand)]
+pub enum NotifyCommand {
+    /// Poll your issues and show a desktop notification for each assignment, status change,
+    /// comment, or mention, until stopped
+    Watch(NotifyWatchArgs),
+}
+
+/// A kind of activity the watch reports.
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Reason {
+    /// An issue assigned to you
+    Assigned,
+    /// A status change on an issue you are on
+    Status,
+    /// A comment on an issue you are on
+    Comment,
+    /// A comment that mentions you
+    Mention,
+}
+
+#[derive(Args)]
+pub struct NotifyWatchArgs {
+    /// Seconds between polls
+    #[arg(long, value_name = "SECS", default_value_t = 60, value_parser = clap::value_parser!(u64).range(10..))]
+    pub interval: u64,
+
+    /// Only this kind of activity, repeatable
+    #[arg(long, value_enum, value_name = "KIND")]
+    pub reason: Vec<Reason>,
+
+    /// JQL for the issues to watch, without ORDER BY (default: ones you are assigned, reported, or
+    /// watch)
+    #[arg(long, value_name = "JQL")]
+    pub jql: Option<String>,
+
+    /// Also report activity from this long before the start, such as 30m or 2h
+    #[arg(long, value_name = "SPAN")]
+    pub since: Option<String>,
+
+    /// Poll once and exit, with --since
+    #[arg(long, requires = "since", conflicts_with_all = ["install", "uninstall"])]
+    pub once: bool,
+
+    /// Start the watch now and at every login, with the options given
+    #[arg(long, conflicts_with = "uninstall")]
+    pub install: bool,
+
+    /// Stop the watch that starts at login
+    #[arg(long)]
+    pub uninstall: bool,
 }
 
 #[derive(Subcommand)]

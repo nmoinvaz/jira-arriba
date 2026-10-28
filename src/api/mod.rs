@@ -1,6 +1,7 @@
 //! Communication with Jira: the authenticated REST client and the helpers that shape its
 //! requests and read its responses.
 
+pub mod activity;
 pub mod attachments;
 mod client;
 pub mod comments;

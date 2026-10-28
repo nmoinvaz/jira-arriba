@@ -61,6 +61,7 @@ mod tests {
                 expiry: None,
                 source: Source::Env(vec![]),
             },
+            site: None,
             json,
             yes: true,
         }

@@ -98,6 +98,25 @@ in the temp directory unless `-o` names one.
 | `adf from-md [FILE]` | Print Markdown as an ADF document |
 | `adf to-md [FILE]` | Print an ADF document, or an issue or comment holding one, as Markdown |
 
+### Notifications
+
+| Command | Description |
+|---------|-------------|
+| `notify watch` | Poll your issues and show a desktop notification for each assignment, status change, comment, or mention, until stopped |
+| `notify watch --install` | Start the watch with the options given, now and at every login, on macOS and Linux |
+| `notify watch --uninstall` | Stop the watch that starts at login, and stop starting it |
+
+Jira has no notification feed in its API, so the watch polls JQL once a minute for issues you are
+assigned, reported, or watch that changed since the last poll, then reads each one's newest changelog
+entries and comments. Your own changes stay quiet. Pass `--reason mention` or any of `assigned`,
+`status`, and `comment` to hear about some kinds only, `--jql` to watch a different set of issues,
+and `--since 2h` to replay recent activity at start. `--once` polls one time and exits.
+
+Notifications use `terminal-notifier` or `osascript` on macOS, `notify-send` on Linux, and a toast on
+Windows, and clicking one opens the issue where the notifier supports it. `--install` registers a
+LaunchAgent on macOS, logging to `~/Library/Logs/jira-arriba-notify-watch.log`, or a systemd user
+service on Linux, logging to the journal.
+
 ### Options
 
 | Option | Description |
@@ -161,6 +180,14 @@ Call the REST API yourself with the same login:
 
 ```
 curl -H "$(jira-arriba auth token --header)" "https://api.atlassian.com/ex/jira/$CLOUD_ID/rest/api/3/myself"
+```
+
+Hear about mentions and new assignments while you work, replaying the last hour first, then keep
+that watch running from every login:
+
+```
+jira-arriba notify watch --reason mention --reason assigned --since 1h
+jira-arriba notify watch --reason mention --reason assigned --install
 ```
 
 ## Development
