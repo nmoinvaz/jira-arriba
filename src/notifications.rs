@@ -543,9 +543,7 @@ mod tests {
         assert_eq!(sent[0].group.as_deref(), Some("jira-arriba:A-1"));
         assert_eq!(
             line(&events[1]),
-            format!(
-                "status    A-1  Open → In Progress  by Ann  https://x.atlassian.net/browse/A-1"
-            )
+            "status    A-1  Open → In Progress  by Ann  https://x.atlassian.net/browse/A-1"
         );
         assert_eq!(
             line(&events[0]),
