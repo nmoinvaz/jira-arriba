@@ -30,7 +30,7 @@ fn main() -> Result<()> {
     let ctx = || Ctx::new(cli.site.clone(), cli.json, cli.yes);
 
     match cli.command {
-        Command::Auth(cmd) => auth::run(cli.site.as_deref(), cli.json, cmd),
+        Command::Auth(cmd) => auth::run(cli.site.as_deref(), cli.json, cli.yes, cmd),
         Command::Issue(cmd) => issue::run(&ctx()?, cmd),
         Command::Attachment(cmd) => attachment::run(&ctx()?, cmd),
         Command::Project(cmd) => project::run(&ctx()?, cmd),

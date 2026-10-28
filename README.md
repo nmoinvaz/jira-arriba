@@ -39,8 +39,9 @@ The login comes from the environment when it is set, and from acli otherwise.
 | `JIRA_ACCESS_TOKEN`, `JIRA_CLOUD_ID` | An OAuth token, sent through the Atlassian gateway; `JIRA_SITE` can stand in for the cloud ID |
 | none | acli's current login, read from `~/.config/acli` and the platform keyring |
 
-With acli, `jira-arriba auth login` opens the browser through `acli jira auth login --web`, and an
-expired OAuth token is refreshed by running `acli jira auth status`. Pass `--site` to pick one of
+With acli, `jira-arriba auth login` opens the browser through `acli jira auth login --web`, offering
+to install acli with Homebrew when it is missing, and an expired OAuth token is refreshed by running
+`acli jira auth status`. Pass `--site` to pick one of
 several acli logins. Reading the keyring uses `security` on macOS, `secret-tool` on Linux, and the
 Windows credential store.
 

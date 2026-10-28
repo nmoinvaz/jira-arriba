@@ -6,11 +6,12 @@ use crate::api::{Client, users};
 use crate::cli::{AuthCommand, LoginArgs, TokenArgs};
 use crate::credentials::{self, Credentials, acli};
 use crate::output::{duration, print_json, table};
+use crate::prompt;
 
-pub fn run(site: Option<&str>, json: bool, cmd: AuthCommand) -> Result<()> {
+pub fn run(site: Option<&str>, json: bool, yes: bool, cmd: AuthCommand) -> Result<()> {
     match cmd {
         AuthCommand::Status => status(site, json),
-        AuthCommand::Login(args) => login(site, json, args),
+        AuthCommand::Login(args) => login(site, json, yes, args),
         AuthCommand::Token(args) => token(site, args),
     }
 }
@@ -86,8 +87,8 @@ fn not_logged_in(json: bool, reason: &str) -> Result<()> {
     std::process::exit(1)
 }
 
-/// Log in through acli, which keeps the login this tool reads.
-fn login(site: Option<&str>, json: bool, args: LoginArgs) -> Result<()> {
+/// Log in through acli, which keeps the login this tool reads, offering to install it first.
+fn login(site: Option<&str>, json: bool, yes: bool, args: LoginArgs) -> Result<()> {
     if credentials::env_present() {
         bail!(
             "The login comes from the environment ({} or {}). Unset it to log in through acli.",
@@ -96,13 +97,19 @@ fn login(site: Option<&str>, json: bool, args: LoginArgs) -> Result<()> {
         );
     }
     if !acli::installed() {
-        bail!(
-            "acli is not installed, and it holds the browser login. Install it from \
-             https://developer.atlassian.com/cloud/acli/guides/install-acli/, or set {}, {}, and {}.",
-            credentials::API_TOKEN,
-            credentials::EMAIL,
-            credentials::SITE
-        );
+        let brew = acli::brew_available();
+        let question =
+            "acli is not installed, and it holds the browser login. Install it with Homebrew?";
+        if !brew || !prompt::confirm(question, yes)? {
+            bail!(
+                "acli is not installed, and it holds the browser login. {}, or set {}, {}, and {}.",
+                acli::install_hint(brew),
+                credentials::API_TOKEN,
+                credentials::EMAIL,
+                credentials::SITE
+            );
+        }
+        acli::install()?;
     }
     let mut acli_args: Vec<&str> = Vec::new();
     if args.token {

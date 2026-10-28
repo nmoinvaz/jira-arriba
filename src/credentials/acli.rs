@@ -224,10 +224,48 @@ fn refresh() -> Result<()> {
         Ok(s) if s.success() => Ok(()),
         Ok(_) => bail!("acli could not refresh its token. Run `jira-arriba auth login`."),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => bail!(
-            "acli's token has expired and acli is not installed to refresh it. Install acli, or set JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_SITE."
+            "acli's token has expired and acli is not installed to refresh it. {}, or set JIRA_API_TOKEN, JIRA_EMAIL, and JIRA_SITE.",
+            install_hint(brew_available())
         ),
         Err(e) => Err(e).context("Failed to run acli"),
     }
+}
+
+/// The Homebrew command that installs acli from Atlassian's tap.
+pub const BREW_INSTALL: &str = "brew install atlassian/acli/acli";
+
+/// Whether Homebrew is on the PATH.
+pub fn brew_available() -> bool {
+    Command::new("brew")
+        .arg("--version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .is_ok()
+}
+
+/// How to get acli: the Homebrew command when brew is present, otherwise the install guide.
+pub fn install_hint(brew: bool) -> String {
+    if brew {
+        format!("Run `{BREW_INSTALL}`")
+    } else {
+        "See https://developer.atlassian.com/cloud/acli/guides/install-acli/".to_string()
+    }
+}
+
+/// Install acli through Homebrew, letting it use the terminal.
+pub fn install() -> Result<()> {
+    let status = Command::new("brew")
+        .args(["install", "atlassian/acli/acli"])
+        .status()
+        .context("Failed to run brew")?;
+    if !status.success() {
+        bail!("brew could not install acli");
+    }
+    if !installed() {
+        bail!("acli was installed but is not on the PATH");
+    }
+    Ok(())
 }
 
 /// Whether acli is on the PATH.
@@ -346,6 +384,12 @@ mod tests {
             expiry: Some("yesterday".into()),
         };
         assert!(bad.expiry().is_none());
+    }
+
+    #[test]
+    fn install_hint_names_brew_or_the_guide() {
+        assert_eq!(install_hint(true), "Run `brew install atlassian/acli/acli`");
+        assert!(install_hint(false).starts_with("See https://"));
     }
 
     #[test]
