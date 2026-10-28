@@ -20,6 +20,15 @@ it on your `PATH`, or build it from source:
 cargo install --git https://github.com/nmoinvaz/jira-arriba
 ```
 
+## Use with Claude
+
+Add this line to `~/.claude/CLAUDE.md` so Claude Code reaches for `jira-arriba` when a task
+touches Jira:
+
+```
+* Use `jira-arriba` when interacting with Jira, for issues, JQL search, transitions, attachments, and comments or descriptions written in Markdown. Run `jira-arriba --help` for the commands.
+```
+
 ## Authentication
 
 The login comes from the environment when it is set, and from acli otherwise.
