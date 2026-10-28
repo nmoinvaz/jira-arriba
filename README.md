@@ -125,6 +125,10 @@ them. Linux and Windows read the icon from a PNG kept under `~/.local/share/jira
 `%LOCALAPPDATA%\jira-arriba`. The icon comes from Atlassian's `@atlaskit/logo` package, and Jira is
 a trademark of Atlassian.
 
+Banners stay up for 11 seconds on Linux and toasts for 25 on Windows. macOS times its own banners,
+so to keep them until dismissed set jira-arriba's alert style to Alerts under System Settings >
+Notifications.
+
 ### Options
 
 | Option | Description |

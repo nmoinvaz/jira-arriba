@@ -47,8 +47,12 @@ struct Invocation {
     env: Vec<(&'static str, String)>,
 }
 
+/// How long notify-send asks to show a banner, six seconds past the five most desktops use.
+const LINUX_EXPIRE_MS: u32 = 11_000;
+
 /// Shows a toast through the WinRT API. Title, body, and icon come from the environment so they
-/// need no quoting. The icon takes the image slot of the template that has one.
+/// need no quoting. The icon takes the image slot of the template that has one, and the long
+/// duration keeps the toast up for 25 seconds rather than 7.
 const WINDOWS_TOAST: &str = "\
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
 $type = if ($env:ARRIBA_NOTE_ICON) { 'ToastImageAndText02' } else { 'ToastText02' }
@@ -57,6 +61,7 @@ $text = $template.GetElementsByTagName('text')
 $text.Item(0).AppendChild($template.CreateTextNode($env:ARRIBA_NOTE_TITLE)) | Out-Null
 $text.Item(1).AppendChild($template.CreateTextNode($env:ARRIBA_NOTE_BODY)) | Out-Null
 if ($env:ARRIBA_NOTE_ICON) { $template.GetElementsByTagName('image').Item(0).SetAttribute('src', $env:ARRIBA_NOTE_ICON) }
+$template.DocumentElement.SetAttribute('duration', 'long')
 $toast = [Windows.UI.Notifications.ToastNotification]::new($template)
 $app = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe'
 [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($app).Show($toast)";
@@ -129,7 +134,10 @@ fn invocation(
             })
         }
         _ if has("notify-send") => {
-            let mut args = vec!["--app-name=jira-arriba".to_string()];
+            let mut args = vec![
+                "--app-name=jira-arriba".to_string(),
+                format!("--expire-time={LINUX_EXPIRE_MS}"),
+            ];
             if let Some(png) = &branding.png {
                 args.push(format!("--icon={}", png.display()));
             }
@@ -357,13 +365,14 @@ mod tests {
             inv.args,
             [
                 "--app-name=jira-arriba",
+                "--expire-time=11000",
                 "--",
                 "D4T-1 assigned to you",
                 "Crash on start"
             ]
         );
         let inv = invocation("linux", &note(None), |p| p == "notify-send", &branded()).unwrap();
-        assert_eq!(inv.args[1], "--icon=/data/jira.png");
+        assert_eq!(inv.args[2], "--icon=/data/jira.png");
         assert_eq!(
             invocation("linux", &note(None), |_| false, &branded()),
             None
