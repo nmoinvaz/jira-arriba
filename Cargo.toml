@@ -1,6 +1,6 @@
 [package]
 name = "jira-arriba"
-version = "0.1.0"
+version = "1.0.0"
 edition = "2024"
 description = "Jira CLI for attachments, Markdown as ADF, JQL search, and transitions, sharing acli's login"
 license = "MIT"
