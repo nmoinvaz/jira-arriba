@@ -38,6 +38,8 @@ const LSREGISTER: &str = "/System/Library/Frameworks/CoreServices.framework/Fram
 pub struct Branding {
     /// The executable of a terminal-notifier copy whose bundle carries the icon.
     pub notifier: Option<PathBuf>,
+    /// The stock terminal-notifier's executable, for when the copy fails.
+    pub stock: Option<PathBuf>,
     /// The icon as a PNG file.
     pub png: Option<PathBuf>,
 }
@@ -57,12 +59,17 @@ pub fn branding() -> &'static Branding {
 fn prepare(os: &str) -> Result<Branding> {
     let dir = data_dir(os, |key| std::env::var_os(key))?;
     Ok(match os {
-        "macos" => Branding {
-            notifier: bundle(&dir, stock_app(super::find))?,
-            png: None,
-        },
+        "macos" => {
+            let stock = stock_app(super::find);
+            Branding {
+                notifier: bundle(&dir, stock.clone())?,
+                stock: stock.map(|app| app.join(EXECUTABLE)),
+                png: None,
+            }
+        }
         _ => Branding {
             notifier: None,
+            stock: None,
             png: Some(png(&dir)?),
         },
     })

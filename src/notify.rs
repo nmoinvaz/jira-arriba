@@ -153,10 +153,23 @@ fn invocation(
     }
 }
 
-/// A toast takes its image as a URL.
+/// A toast takes its image as a URL, so the characters a URL gives meaning to are escaped.
 fn file_url(path: &Path) -> String {
     let path = path.display().to_string().replace('\\', "/");
-    format!("file:///{}", path.trim_start_matches('/'))
+    let path = path
+        .trim_start_matches('/')
+        .replace('%', "%25")
+        .replace('#', "%23")
+        .replace('?', "%3F");
+    format!("file:///{path}")
+}
+
+/// The stock notifier in place of the branded copy.
+fn fallback(branding: &Branding) -> Branding {
+    Branding {
+        notifier: branding.stock.clone(),
+        ..Branding::default()
+    }
 }
 
 /// Where `program` is on the PATH.
@@ -240,15 +253,17 @@ fn show(note: &Note) -> Result<(), Failure> {
         });
     };
     match execute(&inv) {
-        // macOS refuses the branded copy until its notifications are allowed. The stock notifier
-        // shows the note meanwhile.
-        Err(failure) if failure.code == Some(NOT_AUTHORIZED) && branding.notifier.is_some() => {
-            HINTED.call_once(|| {
-                eprintln!(
-                    "Allow jira-arriba under System Settings > Notifications to see the Jira icon ({failure})"
-                );
-            });
-            let Some(stock) = invocation(os, note, on_path, &Branding::default()) else {
+        // The copy is an add-on, so the stock notifier shows the note when it fails. macOS refuses
+        // the copy until its notifications are allowed.
+        Err(failure) if branding.notifier.is_some() => {
+            if failure.code == Some(NOT_AUTHORIZED) {
+                HINTED.call_once(|| {
+                    eprintln!(
+                        "Allow jira-arriba under System Settings > Notifications to see the Jira icon ({failure})"
+                    );
+                });
+            }
+            let Some(stock) = invocation(os, note, on_path, &fallback(branding)) else {
                 return Err(failure);
             };
             execute(&stock)
@@ -305,8 +320,22 @@ mod tests {
     fn branded() -> Branding {
         Branding {
             notifier: Some("/apps/jira-arriba.app/Contents/MacOS/terminal-notifier".into()),
+            stock: Some("/opt/tn/terminal-notifier.app/Contents/MacOS/terminal-notifier".into()),
             png: Some("/data/jira.png".into()),
         }
+    }
+
+    #[test]
+    fn fallback_keeps_the_stock_notifier_without_the_icon() {
+        let stock = fallback(&branded());
+        assert_eq!(stock.notifier, branded().stock);
+        assert_eq!(stock.png, None);
+        assert_eq!(fallback(&plain()), plain());
+        let inv = invocation("macos", &note(None), |_| false, &stock).unwrap();
+        assert_eq!(
+            inv.program,
+            Path::new("/opt/tn/terminal-notifier.app/Contents/MacOS/terminal-notifier")
+        );
     }
 
     #[test]
@@ -404,6 +433,10 @@ mod tests {
                 "C:\\Users\\me\\AppData\\Local\\jira-arriba\\jira.png"
             )),
             "file:///C:/Users/me/AppData/Local/jira-arriba/jira.png"
+        );
+        assert_eq!(
+            file_url(Path::new("C:\\Users\\A#B\\100%\\x?.png")),
+            "file:///C:/Users/A%23B/100%25/x%3F.png"
         );
     }
 
